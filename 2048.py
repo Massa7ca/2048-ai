@@ -7,9 +7,8 @@ from __future__ import print_function
 import ctypes
 import time
 import os
+import math
 
-# Enable multithreading?
-MULTITHREAD = True
 
 for suffix in ['so', 'dll', 'dylib']:
     dllfn = 'bin/2048.' + suffix
@@ -23,8 +22,8 @@ else:
 
 ailib.init_tables()
 
-ailib.find_best_move.argtypes = [ctypes.c_uint64]
-ailib.score_toplevel_move.argtypes = [ctypes.c_uint64, ctypes.c_int]
+ailib.find_best_move.argtypes = [ctypes.c_uint64, ctypes.c_int]
+ailib.score_toplevel_move.argtypes = [ctypes.c_uint64, ctypes.c_int, ctypes.c_int]
 ailib.score_toplevel_move.restype = ctypes.c_float
 
 def to_c_board(m):
@@ -57,26 +56,9 @@ def _to_score(c):
 def to_score(m):
     return [[_to_score(c) for c in row] for row in m]
 
-if MULTITHREAD:
-    from multiprocessing.pool import ThreadPool
-    pool = ThreadPool(4)
-    def score_toplevel_move(args):
-        return ailib.score_toplevel_move(*args)
-
-    def find_best_move(m):
-        board = to_c_board(m)
-
-        print_board(to_val(m))
-
-        scores = pool.map(score_toplevel_move, [(board, move) for move in range(4)])
-        bestmove, bestscore = max(enumerate(scores), key=lambda x:x[1])
-        if bestscore == 0:
-            return -1
-        return bestmove
-else:
-    def find_best_move(m):
-        board = to_c_board(m)
-        return ailib.find_best_move(board)
+def find_best_move(m, ofset_depth):
+    board = to_c_board(m)
+    return ailib.find_best_move(board, ofset_depth)
 
 def movename(move):
     return ['up', 'down', 'left', 'right'][move]
@@ -94,7 +76,7 @@ def play_game(gamectrl):
 
         moveno += 1
         board = gamectrl.get_board()
-        move = find_best_move(board)
+        move = find_best_move(board, -2)
         if move < 0:
             break
         print("%010.6f: Score %d, Move %d: %s" % (time.time() - start, gamectrl.get_score(), moveno, movename(move)))

@@ -53,9 +53,9 @@ extern "C" {
 
 DLL_PUBLIC void init_tables();
 
-typedef int (*get_move_func_t)(board_t);
-DLL_PUBLIC float score_toplevel_move(board_t board, int move);
-DLL_PUBLIC int find_best_move(board_t board);
+typedef int (*get_move_func_t)(board_t, int);
+DLL_PUBLIC float score_toplevel_move(board_t board, int move, int ofset_depth);
+DLL_PUBLIC int find_best_move(board_t board, int ofset_depth);
 DLL_PUBLIC int ask_for_move(board_t board);
 DLL_PUBLIC void play_game(get_move_func_t get_move);
 

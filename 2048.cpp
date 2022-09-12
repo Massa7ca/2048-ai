@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 #include <algorithm>
+#include <omp.h>
 
 #include "2048.h"
 
@@ -285,7 +286,7 @@ static float score_heur_board(board_t board);
 // score a single board actually (adding in the score from spawned 4 tiles)
 static float score_board(board_t board);
 // score over all possible moves
-static float score_move_node(eval_state &state, board_t board, float cprob);
+static void score_move_node(eval_state &state, board_t board, float cprob, float &res, float cof);
 // score over all possible tile choices and placements
 static float score_tilechoose_node(eval_state &state, board_t board, float cprob);
 
@@ -343,9 +344,10 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
     board_t tile_2 = 1;
     while (tile_2) {
         if ((tmp & 0xf) == 0) {
-            res += score_move_node(state, board |  tile_2      , cprob * 0.9f) * 0.9f;
-            res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
+            score_move_node(state, board |  tile_2      , cprob * 0.9f, res, 0.9f);
+            score_move_node(state, board | (tile_2 << 1), cprob * 0.1f, res, 0.1f);
         }
+        
         tmp >>= 4;
         tile_2 <<= 4;
     }
@@ -359,7 +361,7 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
     return res;
 }
 
-static float score_move_node(eval_state &state, board_t board, float cprob) {
+static void score_move_node(eval_state &state, board_t board, float cprob, float &res, float cof) {
     float best = 0.0f;
     state.curdepth++;
     for (int move = 0; move < 4; ++move) {
@@ -370,9 +372,9 @@ static float score_move_node(eval_state &state, board_t board, float cprob) {
             best = std::max(best, score_tilechoose_node(state, newboard, cprob));
         }
     }
+    
     state.curdepth--;
-
-    return best;
+    res += best * cof;
 }
 
 static float _score_toplevel_move(eval_state &state, board_t board, int move) {
@@ -381,16 +383,16 @@ static float _score_toplevel_move(eval_state &state, board_t board, int move) {
 
     if(board == newboard)
         return 0;
-
+    
     return score_tilechoose_node(state, newboard, 1.0f) + 1e-6;
 }
 
-float score_toplevel_move(board_t board, int move) {
+float score_toplevel_move(board_t board, int move, int ofset_depth) {
     float res;
     struct timeval start, finish;
     double elapsed;
     eval_state state;
-    state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
+    state.depth_limit = std::max(3, count_distinct_tiles(board) + ofset_depth);
 
     gettimeofday(&start, NULL);
     res = _score_toplevel_move(state, board, move);
@@ -406,22 +408,27 @@ float score_toplevel_move(board_t board, int move) {
 }
 
 /* Find the best move for a given board. */
-int find_best_move(board_t board) {
+int find_best_move(board_t board, int ofset_depth) {
     int move;
-    float best = 0;
     int bestmove = -1;
 
     print_board(board);
     printf("Current scores: heur %.0f, actual %.0f\n", score_heur_board(board), score_board(board));
 
+    float scores[4] = {0, 0, 0, 0};
+    #pragma omp parallel for
     for(move=0; move<4; move++) {
-        float res = score_toplevel_move(board, move);
-
-        if(res > best) {
-            best = res;
-            bestmove = move;
-        }
+	scores[move] = score_toplevel_move(board, move, ofset_depth);
     }
+    
+    float max_score = 0;
+    for(move=0; move<4; move++) {
+	if(scores[move] > max_score) {
+	    max_score = scores[move];
+	    bestmove = move;
+	}
+    }
+    
 
     return bestmove;
 }
@@ -503,7 +510,7 @@ void play_game(get_move_func_t get_move) {
 
         printf("\nMove #%d, current score=%.0f\n", ++moveno, score_board(board) - scorepenalty);
 
-        move = get_move(board);
+        move = get_move(board, 0);
         if(move < 0)
             break;
 
